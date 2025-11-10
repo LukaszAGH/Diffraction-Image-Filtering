@@ -1,3 +1,4 @@
 ImageFilteringApp.iml
 .idea
 .venv
+diffimgfilterapp/__pycache__/
