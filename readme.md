@@ -1,4 +1,4 @@
-# Diffraction Image Filtering App 🩻
+# Diffraction Image Filtering App
 
 Dedicated to filtering diffraction images obtained with techniques such as **RHEED** or **EBSD**. Minimal desktop app to load diffraction images, convert them to HDF5, apply filtering pipelines, preview results, and save outputs.
 
@@ -28,5 +28,7 @@ From the project root:
 - Click **Save** to write the processed image.
 - The **Debug** panel under the previews shows logs.
 
-The application should start with the following screen (loaded RHEED image as example):
+The application should start with the following screen:
 ![main.png](docs/main.png)
+
+Suitable images to test the tool are the ones demonstrated in the publication: [AstroEBSD: exploring new space in pattern indexing with methods launched from an astronomical approach](https://journals.iucr.org/paper?S1600576718010373) by T. B. Britton et al. (2018)
