@@ -1,77 +1,246 @@
 import numpy as np
 import cv2
 from numpy.fft import fft2, ifft2, fftshift, ifftshift
-from skimage import exposure, filters, restoration, util
+from skimage import exposure, filters, restoration, util, img_as_float
 from sklearn.cluster import DBSCAN
 from scipy.ndimage import gaussian_filter
+from typing import Union, Tuple, List
 
 def _to_uint8(img: np.ndarray) -> np.uint8:
-    if img.dtype == np.uint8:
-        return img
+    if img.dtype == np.uint8: return img
     img = img.astype(np.float32)
     img -= img.min()
     m = img.max()
-    if m > 0:
-        img /= m
+    if m > 0: img /= m
     return (img * 255.0).clip(0, 255).astype(np.uint8)
 
-def fft_gaussian_filter(image: np.ndarray, std: float, truncate: float = 4.0) -> np.ndarray:
+def ski_rescale_with_min_max(
+        pattern: np.ndarray,
+        imin: Union[int, float],
+        imax: Union[int, float],
+        omin: Union[int, float],
+        omax: Union[int, float]
+) -> np.ndarray:
+    if imax - imin == 0: return pattern
+    pattern = (pattern - imin) / (imax - imin)
+    pattern = pattern * (omax - omin) + omin
+    return pattern
+
+def ski_remove_background_subtract(
+        pattern: np.ndarray,
+        background: np.ndarray,
+        omin: Union[int, float],
+        omax: Union[int, float],
+) -> np.ndarray:
+    pattern -= background
+    imin = np.min(pattern)
+    imax = np.max(pattern)
+    return ski_rescale_with_min_max(pattern, imin, imax, omin, omax)
+
+def ski_fft_gaussian_filter(image, std):
     rows, cols = image.shape
     cy, cx = rows // 2, cols // 2
-    y, x = np.ogrid[-cy:rows - cy, -cx:cols - cx]
-    g = np.exp(-(x**2 + y**2) / (2 * std**2))
-    g /= g.sum()
-    image_fft = fft2(image)
-    kernel_fft = fft2(ifftshift(g), s=image.shape)
-    filtered_fft = image_fft * kernel_fft
-    return np.real(ifft2(filtered_fft))
+    y, x = np.ogrid[-cy:rows-cy, -cx:cols-cx]
+    gaussian_kernel = np.exp(-(x**2 + y**2) / (2 * std**2))
+    gaussian_kernel /= gaussian_kernel.sum()
 
-def remove_dynamic_background_full(pattern, operation="subtract", filter_domain="frequency",
-                                   std=None, truncate=4.0, dtype_out="uint8"):
+    image_fft = fft2(image)
+    kernel_fft = fft2(ifftshift(gaussian_kernel))
+    filtered_fft = image_fft * kernel_fft
+    filtered_image = np.real(ifft2(filtered_fft))
+    return filtered_image
+
+def fft_gaussian_filter_opencv_logic(image: np.ndarray, std: float, truncate: float) -> np.ndarray:
+    rows, cols = image.shape
+    cy, cx = rows // 2, cols // 2
+    y, x = np.ogrid[-cy:rows-cy, -cx:cols-cx]
+    gaussian_kernel = np.exp(-(x**2 + y**2) / (2 * std**2))
+    gaussian_kernel /= gaussian_kernel.sum()
+    image_fft = np.fft.fft2(image)
+    kernel_fft = np.fft.fft2(np.fft.ifftshift(gaussian_kernel), s=image.shape)
+    filtered_fft = image_fft * kernel_fft
+    filtered_image = np.real(np.fft.ifft2(filtered_fft))
+    return filtered_image
+
+def _opencv_rescale_with_min_max(pattern, imin, imax, omin, omax):
+    if imax - imin == 0: return pattern
+    pattern = (pattern - imin) / (imax - imin)
+    pattern = pattern * (omax - omin) + omin
+    return pattern
+
+def _opencv_remove_background_subtract(pattern, background, omin, omax):
+    pattern -= background
+    imin = np.min(pattern)
+    imax = np.max(pattern)
+    return _opencv_rescale_with_min_max(pattern, imin, imax, omin, omax)
+
+def ski_adaptive_histogram_equalization(
+        image: np.ndarray,
+        kernel_size: Union[Tuple[int, int], List[int]],
+        clip_limit: Union[int, float] = 0.03,
+        nbins: int = 128,
+) -> np.ndarray:
+    if isinstance(kernel_size, (list, tuple)):
+        kernel_size = tuple(int(k) for k in kernel_size)
+
+    image_eq = exposure.equalize_adapthist(
+        image,
+        kernel_size=kernel_size,
+        clip_limit=clip_limit,
+        nbins=nbins,
+    )
+
+    dtype_out = image.dtype
+    omin, omax = (0, 1) if np.issubdtype(dtype_out, np.floating) else (np.iinfo(dtype_out).min, np.iinfo(dtype_out).max)
+
+    image_eq = exposure.rescale_intensity(image_eq, out_range=(omin, omax))
+
+    if dtype_out == np.uint8 or dtype_out == np.dtype('uint8'):
+        if image_eq.dtype != np.uint8:
+            image_eq = image_eq.astype(np.uint8)
+
+    return image_eq
+
+def open_adaptive_histogram_equalization(
+        image: np.ndarray,
+        clip_limit: float = 0.0,
+        tile_grid_size: Tuple[int, int] = (15, 15)
+) -> np.ndarray:
+    if isinstance(tile_grid_size, (list, tuple)):
+        tile_grid_size = tuple(int(k) for k in tile_grid_size)
+    clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=tile_grid_size)
+    return clahe.apply(image)
+
+def ski_remove_dynamic_background_full(
+        pattern,
+        operation="subtract",
+        filter_domain="frequency",
+        std=None,
+        truncate=4.0,
+        dtype_out=np.uint8,
+) -> np.ndarray:
     if std is None:
         std = pattern.shape[1] / 8.0
-    f = pattern.astype(np.float32)
+
+    if not isinstance(dtype_out, (type, np.dtype)):
+        dtype_out = np.dtype(dtype_out)
+
+    pattern_float = img_as_float(pattern)
+
     if filter_domain == "frequency":
-        bg = fft_gaussian_filter(f, std, truncate)
+        dynamic_bg = ski_fft_gaussian_filter(pattern_float, std)
     elif filter_domain == "spatial":
-        bg = cv2.GaussianBlur(f, (0, 0), std)
+        dynamic_bg = gaussian_filter(pattern_float, sigma=std, truncate=truncate)
     else:
         raise ValueError("filter_domain must be 'frequency' or 'spatial'")
+
+    omin, omax = (0, 1) if np.issubdtype(dtype_out, np.floating) else (np.iinfo(dtype_out).min, np.iinfo(dtype_out).max)
+
     if operation == "subtract":
-        corr = f - bg
+        corrected = ski_remove_background_subtract(pattern_float, dynamic_bg, omin, omax)
     elif operation == "divide":
-        corr = f / (bg + 1e-8)
+        corrected = pattern_float / (dynamic_bg + 1e-10)
+        corrected = ski_rescale_with_min_max(corrected, np.min(corrected), np.max(corrected), omin, omax)
     else:
         raise ValueError("operation must be 'subtract' or 'divide'")
-    corr -= corr.min()
-    m = corr.max()
-    if m > 0:
-        corr /= m
-    out = (corr * 255).clip(0, 255).astype(np.uint8)
-    return out if dtype_out == "uint8" else corr.astype(np.float32)
 
-def ski_remove_dynamic_background_full(pattern, operation="subtract", filter_domain="frequency",
-                                       std=None, truncate=4.0, dtype_out="uint8"):
+    if np.issubdtype(dtype_out, np.integer):
+        corrected = exposure.rescale_intensity(corrected, out_range=(omin, omax))
+        corrected = corrected.astype(dtype_out)
+    else:
+        corrected = np.clip(corrected, 0, 1).astype(dtype_out)
+
+    return corrected
+
+def remove_dynamic_background_full(
+        pattern: np.ndarray,
+        operation: str = "subtract",
+        filter_domain: str = "frequency",
+        std=None,
+        truncate: float = 4.0,
+        dtype_out=np.uint8,
+) -> np.ndarray:
     if std is None:
         std = pattern.shape[1] / 8.0
-    f = util.img_as_float(pattern)
+
+    if not isinstance(dtype_out, (type, np.dtype)):
+        dtype_out = np.dtype(dtype_out)
+
+    pattern_float = pattern.astype(np.float32)
+
     if filter_domain == "frequency":
-        bg = fft_gaussian_filter(f, std, truncate)
+        dynamic_bg = fft_gaussian_filter_opencv_logic(pattern_float, std, truncate)
     elif filter_domain == "spatial":
-        bg = gaussian_filter(f, sigma=std, truncate=truncate)
+        dynamic_bg = cv2.GaussianBlur(pattern_float, (0, 0), std)
     else:
         raise ValueError("filter_domain must be 'frequency' or 'spatial'")
-    corr = f - bg if operation == "subtract" else f / (bg + 1e-8)
-    corr -= corr.min()
-    m = corr.max()
-    if m > 0:
-        corr /= m
-    out = (corr * 255).clip(0, 255).astype(np.uint8)
-    return out if dtype_out == "uint8" else corr.astype(np.float32)
+
+    omin, omax = (0, 1) if np.issubdtype(dtype_out, np.floating) else (np.iinfo(dtype_out).min, np.iinfo(dtype_out).max)
+
+    if operation == "subtract":
+        corrected = _opencv_remove_background_subtract(pattern_float, dynamic_bg, omin, omax)
+    elif operation == "divide":
+        corrected = pattern_float / (dynamic_bg + 1e-10)
+        corrected = _opencv_rescale_with_min_max(corrected, np.min(corrected), np.max(corrected), omin, omax)
+
+    if np.issubdtype(dtype_out, np.integer):
+        corrected = np.clip(corrected, omin, omax).astype(dtype_out)
+    else:
+        corrected = np.clip(corrected, 0, 1)
+
+    return corrected
+
+def pipeline_ski_rdb_adapthist(image, std=None, truncate=4.0, kernel_size=(15, 15), clip_limit=0.01):
+    rdb = ski_remove_dynamic_background_full(
+        image,
+        operation="subtract",
+        filter_domain="frequency",
+        std=std,
+        truncate=truncate,
+        dtype_out=np.uint8
+    )
+    out = ski_adaptive_histogram_equalization(
+        rdb,
+        kernel_size=kernel_size,
+        clip_limit=clip_limit,
+        nbins=128
+    )
+    return out
+
+def pipeline_opencv_rdb_clahe(image, std=None, truncate=4.0, clip_limit=0.0, tile_grid_size=(30, 30)):
+    rdb = remove_dynamic_background_full(
+        image,
+        operation="subtract",
+        filter_domain="frequency",
+        std=std,
+        truncate=truncate,
+        dtype_out=np.uint8
+    )
+    if rdb.dtype != np.uint8:
+        rdb = (rdb * 255).clip(0, 255).astype(np.uint8)
+    out = open_adaptive_histogram_equalization(
+        rdb,
+        clip_limit=clip_limit,
+        tile_grid_size=tile_grid_size
+    )
+    return out
+
+def pipeline_opencv_rdb_trad(image, std=None, truncate=4.0):
+    rdb = remove_dynamic_background_full(
+        image,
+        operation="subtract",
+        filter_domain="frequency",
+        std=std,
+        truncate=truncate,
+        dtype_out=np.uint8
+    )
+    if rdb.dtype != np.uint8:
+        rdb = (rdb * 255).clip(0, 255).astype(np.uint8)
+    return cv2.equalizeHist(rdb)
 
 def enhanced_kikuchi_contrast(image, std=10, clip_limit=0.01, truncate=4.0, kernel_size=(32, 32)):
     img = util.img_as_float(image)
-    bg = fft_gaussian_filter(img, std, truncate)
+    bg = ski_fft_gaussian_filter(img, std)
     img = img - bg
     img = exposure.rescale_intensity(img, out_range=(0, 1))
     sharp = filters.unsharp_mask(img, radius=3, amount=1.5)
@@ -182,7 +351,6 @@ def ready_hough(image_data, params, detect_indices=False):
                     cv2.rectangle(final_image, (tx[0], tx[1]-th-2), (tx[0]+tw, tx[1]+2), (255,255,255), -1)
                     cv2.putText(final_image, best, tx, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,0,0), 1, cv2.LINE_AA)
                     shown.add(best)
-    # intersections clustering
     if lines is not None:
         intersections = []
         hough_lines = [(np.cos(l[0][1]), np.sin(l[0][1]), -l[0][0]) for l in lines[:params['min_limit']]]

@@ -15,6 +15,22 @@ METHODS = {
         "truncate": ("float", 4.0),
         "dtype_out": ("str", "uint8"),
     }),
+    "SKI RDB + ADAPT_HIST_EQUAL": ("ski_rdb_adapthist", {
+        "std": ("float_or_none", None),
+        "truncate": ("float", 4.0),
+        "kernel_size": ("tuple2int", "15,15"),
+        "clip_limit": ("float", 0.01),
+    }),
+    "OPENCV RDB + ADAPT_HIST_EQUAL(CLAHE)": ("opencv_rdb_clahe", {
+        "std": ("float_or_none", None),
+        "truncate": ("float", 4.0),
+        "clip_limit": ("float", 0.0),
+        "tile_grid_size": ("tuple2int", "30,30"),
+    }),
+    "OPENCV RDB + ADAPT_HIST_EQUAL(TRADITIONAL)": ("opencv_rdb_trad", {
+        "std": ("float_or_none", None),
+        "truncate": ("float", 4.0),
+    }),
     "Enhanced Kikuchi": ("enhanced_kikuchi", {
         "std": ("float", 10.0),
         "clip_limit": ("float", 0.01),
@@ -51,12 +67,46 @@ METHODS = {
 def run_method(method_key: str, img, kwargs: dict):
     if method_key == "opencv_rdb":
         return op.remove_dynamic_background_full(
-            img, kwargs["operation"], kwargs["filter_domain"], kwargs["std"], kwargs["truncate"], kwargs["dtype_out"]
+            img,
+            operation=kwargs["operation"],
+            filter_domain=kwargs["filter_domain"],
+            std=kwargs["std"],
+            truncate=kwargs["truncate"],
+            dtype_out=kwargs["dtype_out"]
         )
     if method_key == "skimage_rdb":
         return op.ski_remove_dynamic_background_full(
-            img, kwargs["operation"], kwargs["filter_domain"], kwargs["std"], kwargs["truncate"], kwargs["dtype_out"]
+            img,
+            operation=kwargs["operation"],
+            filter_domain=kwargs["filter_domain"],
+            std=kwargs["std"],
+            truncate=kwargs["truncate"],
+            dtype_out=kwargs["dtype_out"]
         )
+
+    if method_key == "ski_rdb_adapthist":
+        return op.pipeline_ski_rdb_adapthist(
+            img,
+            std=kwargs["std"],
+            truncate=kwargs["truncate"],
+            kernel_size=kwargs["kernel_size"],
+            clip_limit=kwargs["clip_limit"]
+        )
+    if method_key == "opencv_rdb_clahe":
+        return op.pipeline_opencv_rdb_clahe(
+            img,
+            std=kwargs["std"],
+            truncate=kwargs["truncate"],
+            clip_limit=kwargs["clip_limit"],
+            tile_grid_size=kwargs["tile_grid_size"]
+        )
+    if method_key == "opencv_rdb_trad":
+        return op.pipeline_opencv_rdb_trad(
+            img,
+            std=kwargs["std"],
+            truncate=kwargs["truncate"]
+        )
+
     if method_key == "enhanced_kikuchi":
         return op.enhanced_kikuchi_contrast(img, kwargs["std"], kwargs["clip_limit"], kwargs["truncate"], kwargs["kernel_size"])
     if method_key == "multi_pipeline":

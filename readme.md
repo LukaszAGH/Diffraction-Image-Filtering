@@ -1,4 +1,4 @@
-# Diffraction Image Filtering App
+# Diffraction Image Filtering App (DIFapp)
 
 Dedicated to filtering diffraction images obtained with techniques such as **RHEED** or **EBSD**. Minimal desktop app to load diffraction images, convert them to HDF5, apply filtering pipelines, preview results, and save outputs.
 
@@ -25,8 +25,8 @@ From the project root:
 - Click **Load** to select an image (`.png`, `.jpg`, `.tif`, `.tiff`).
 - The app converts to `.h5` internally and displays the image.
 - Choose a method, adjust parameters, click **Run**.
-- Click **Save** to write the processed image.
-- The **Debug** panel under the previews shows logs.
+- Use the **Export Options** buttons to save the processed image, create side-by-side comparisons, or generate analysis plots with intensity histograms.
+- The **Debug** panel under the previews shows logs and internal steps.
 
 The application should start with the following screen:
 ![main.png](docs/main.png)

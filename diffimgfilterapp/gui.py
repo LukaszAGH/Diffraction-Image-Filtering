@@ -5,17 +5,18 @@ from tkinter import filedialog, messagebox
 from PIL import Image, ImageTk
 import logging, datetime, traceback
 import numpy as np
+import h5py
 
 from .io_h5 import convert_image_to_h5, load_h5_first_2d
 from .methods import METHODS, run_method
-from .utils import parse_param, save_image_robust
+from .utils import parse_param, save_image_robust, save_comparison_plot, save_histogram_plot
 from .img_ops import _to_uint8
 
 class DiffractionFilteringGUI(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Diffraction Image Filtering App")
-        self.geometry("1200x780")
+        self.geometry("1200x850")
         self.tempdir = tempfile.mkdtemp(prefix="diff_gui_")
         self.h5_path = None
         self.original = None
@@ -31,22 +32,30 @@ class DiffractionFilteringGUI(tk.Tk):
         left = tk.Frame(self, padx=8, pady=8)
         left.pack(side=tk.LEFT, fill=tk.Y)
 
-        tk.Button(left, text="Load", width=16, command=self.on_load).grid(row=0, column=0, pady=4, sticky="ew")
-        tk.Button(left, text="Run",  width=16, command=self.on_run ).grid(row=1, column=0, pady=4, sticky="ew")
-        tk.Button(left, text="Clear",width=16, command=self.on_clear).grid(row=2, column=0, pady=4, sticky="ew")
-        tk.Button(left, text="Save", width=16, command=self.on_save).grid(row=3, column=0, pady=4, sticky="ew")
-        tk.Button(left, text="Quit", width=16, command=self.destroy).grid(row=4, column=0, pady=4, sticky="ew")
+        tk.Button(left, text="Load", width=18, command=self.on_load).grid(row=0, column=0, pady=4, sticky="ew")
+        tk.Button(left, text="Run",  width=18, command=self.on_run ).grid(row=1, column=0, pady=4, sticky="ew")
+        tk.Button(left, text="Clear",width=18, command=self.on_clear).grid(row=2, column=0, pady=4, sticky="ew")
 
-        tk.Label(left, text="Method:").grid(row=5, column=0, pady=(16, 4), sticky="w")
+        tk.Label(left, text="Export Options:").grid(row=3, column=0, pady=(10, 2), sticky="w")
+        tk.Button(left, text="Save Result Img", width=18, command=self.on_save).grid(row=4, column=0, pady=2, sticky="ew")
+        tk.Button(left, text="Export Comparison", width=18, command=self.on_save_comp).grid(row=5, column=0, pady=2, sticky="ew")
+        tk.Button(left, text="Export Result + Hist", width=18, command=self.on_save_hist).grid(row=6, column=0, pady=2, sticky="ew")
+
+        tk.Button(left, text="Export Original + Hist", width=18, command=self.on_save_hist_orig).grid(row=7, column=0, pady=2, sticky="ew")
+
+        tk.Button(left, text="Quit", width=18, command=self.destroy).grid(row=8, column=0, pady=10, sticky="ew")
+
+        tk.Label(left, text="Method:").grid(row=9, column=0, pady=(10, 4), sticky="w")
         self.method_var = tk.StringVar(value="OpenCV RDB")
-        menu = tk.OptionMenu(left, self.method_var, *METHODS.keys(), command=lambda _: self._rebuild_params())
-        menu.config(width=20)
-        menu.grid(row=6, column=0, sticky="ew")
+        method_names = list(METHODS.keys())
+        menu = tk.OptionMenu(left, self.method_var, *method_names, command=lambda _: self._rebuild_params())
+        menu.config(width=22)
+        menu.grid(row=10, column=0, sticky="ew")
 
-        tk.Label(left, text="Parameters:").grid(row=7, column=0, pady=(16, 4), sticky="w")
+        tk.Label(left, text="Parameters:").grid(row=11, column=0, pady=(16, 4), sticky="w")
         self.params_frame = tk.LabelFrame(left, text="Method Parameters", padx=6, pady=6)
-        self.params_frame.grid(row=8, column=0, sticky="nsew")
-        left.grid_rowconfigure(8, weight=1)
+        self.params_frame.grid(row=12, column=0, sticky="nsew")
+        left.grid_rowconfigure(12, weight=1)
         self.param_vars = {}
         self._rebuild_params()
 
@@ -132,7 +141,6 @@ class DiffractionFilteringGUI(tk.Tk):
                 self.param_vars[pname] = ent
             row += 1
 
-    # Actions
     def on_load(self):
         path = filedialog.askopenfilename(
             title="Select Image",
@@ -146,6 +154,7 @@ class DiffractionFilteringGUI(tk.Tk):
             self.log("LOAD start:", path)
             convert_image_to_h5(path, self.h5_path, signal_type="EBSD")
             self.log("H5 written:", self.h5_path)
+            # Basic sanity check
             with h5py.File(self.h5_path, "r") as f:
                 pass
             img = load_h5_first_2d(self.h5_path)
@@ -213,7 +222,69 @@ class DiffractionFilteringGUI(tk.Tk):
             self.log("SAVE error:", e, "\n", tb)
             messagebox.showerror("Save error", f"{e}\nPath: {out_path}")
 
-    # Rendering helpers
+    def on_save_comp(self):
+        if self.original is None or self.processed is None:
+            messagebox.showwarning("Incomplete", "Need both original and processed images.")
+            return
+        out_path = filedialog.asksaveasfilename(
+            title="Save Comparison Plot",
+            defaultextension=".png",
+            filetypes=[("PNG", "*.png"), ("TIFF", "*.tif"), ("JPEG", "*.jpg")]
+        )
+        if not out_path:
+            return
+        try:
+            self.log("SAVE CMP start ->", out_path)
+            save_comparison_plot(out_path, self.original, self.processed)
+            self.log("Saved Comparison to", out_path)
+            messagebox.showinfo("Saved", f"Comparison saved to:\n{out_path}")
+        except Exception as e:
+            tb = traceback.format_exc()
+            self.log("SAVE CMP error:", e, "\n", tb)
+            messagebox.showerror("Save error", str(e))
+
+    def on_save_hist(self):
+        if self.processed is None:
+            messagebox.showwarning("No Data", "Run a method first.")
+            return
+        out_path = filedialog.asksaveasfilename(
+            title="Save Histogram Plot",
+            defaultextension=".png",
+            filetypes=[("PNG", "*.png"), ("TIFF", "*.tif"), ("JPEG", "*.jpg")]
+        )
+        if not out_path:
+            return
+        try:
+            self.log("SAVE HIST start ->", out_path)
+            save_histogram_plot(out_path, self.processed)
+            self.log("Saved Histogram to", out_path)
+            messagebox.showinfo("Saved", f"Histogram saved to:\n{out_path}")
+        except Exception as e:
+            tb = traceback.format_exc()
+            self.log("SAVE HIST error:", e, "\n", tb)
+            messagebox.showerror("Save error", str(e))
+
+    def on_save_hist_orig(self):
+        if self.original is None:
+            messagebox.showwarning("No Data", "Load an image first.")
+            return
+        out_path = filedialog.asksaveasfilename(
+            title="Save Original Histogram Plot",
+            defaultextension=".png",
+            filetypes=[("PNG", "*.png"), ("TIFF", "*.tif"), ("JPEG", "*.jpg")]
+        )
+        if not out_path:
+            return
+        try:
+            self.log("SAVE HIST ORIG start ->", out_path)
+            save_histogram_plot(out_path, self.original)
+            self.log("Saved Original Histogram to", out_path)
+            messagebox.showinfo("Saved", f"Histogram saved to:\n{out_path}")
+        except Exception as e:
+            tb = traceback.format_exc()
+            self.log("SAVE HIST ORIG error:", e, "\n", tb)
+            messagebox.showerror("Save error", str(e))
+
     def _show_image(self, widget: tk.Label, img: np.ndarray, is_color: bool):
         self.log("SHOW shape=", getattr(img, "shape", None), "dtype=", getattr(img, "dtype", None))
         widget.update_idletasks()
@@ -244,6 +315,3 @@ class DiffractionFilteringGUI(tk.Tk):
             self.tk_img_original = None
         else:
             self.tk_img_processed = None
-
-import h5py
-import cv2
