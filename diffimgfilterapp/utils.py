@@ -120,18 +120,18 @@ def save_histogram_plot(save_path: str, image: np.ndarray, title_suffix: str = "
 
     rect = Rectangle((0.91, 0.017), 0.07, 0.07, color='white', transform=ax1.transAxes)
     ax1.add_patch(rect)
-    plt.text(0.945, 0.05, '(a)', color='black', fontsize=16, weight='bold',
+    plt.text(0.945, 0.05, '(a)', color='black', fontsize=22, weight='bold',
              ha='center', va='center', transform=ax1.transAxes)
 
     ax2 = plt.subplot(1, 2, 2)
     plt.hist(img.ravel(), bins=bins, range=range_values, fc='k', ec='k')
-    plt.xlabel('Wartości natężeń', fontsize=16, weight='bold')
-    plt.ylabel('Częstotliwość', fontsize=16, weight='bold')
-    plt.tick_params(axis='both', which='major', labelsize=14)
+    plt.xlabel('Natężenie sygnału [j. a.]', fontsize=22, weight='bold')
+    plt.ylabel('Liczebność [zliczenia]', fontsize=22, weight='bold')
+    plt.tick_params(axis='both', which='major', labelsize=22)
 
     rect2 = Rectangle((0.91, 0.017), 0.07, 0.07, color='white', transform=ax2.transAxes)
     ax2.add_patch(rect2)
-    plt.text(0.945, 0.05, '(b)', color='black', fontsize=16, weight='bold',
+    plt.text(0.945, 0.05, '(b)', color='black', fontsize=22, weight='bold',
              ha='center', va='center', transform=ax2.transAxes)
 
     plt.tight_layout()
