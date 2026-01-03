@@ -6,6 +6,7 @@ from PIL import Image, ImageTk
 import logging, datetime, traceback
 import numpy as np
 import h5py
+import cv2
 
 from .io_h5 import convert_image_to_h5, load_h5_first_2d
 from .methods import METHODS, run_method
