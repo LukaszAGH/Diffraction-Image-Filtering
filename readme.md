@@ -8,12 +8,15 @@ Dedicated to filtering diffraction images obtained with techniques such as **RHE
 - Tk available (Windows bundle it; on Linux install `python3-tk`)
 
 ## Installation
-Create a virtual environment and install pinned dependencies.
+Create a virtual environment and install pinned dependencies. **Use Windows Command Prompt (cmd.exe). Do not use PowerShell.**
 
 ```ps1
 py -m venv .venv
-.\.venv\Scripts\Activate.ps1
+
+.\.venv\Scripts\activate.bat
+
 python -m pip install --upgrade pip setuptools wheel
+
 pip install -r requirements.txt
 ```
 ## Quick start
