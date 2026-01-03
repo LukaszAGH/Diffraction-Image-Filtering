@@ -4,7 +4,7 @@ Dedicated to filtering diffraction images obtained with techniques such as **RHE
 
 ## Prerequisites
 
-- Python 3.10 or 3.11
+- Python 3.10 or 3.11 (download: https://www.python.org/downloads/release/python-3110/)
 - Tk available (Windows bundle it; on Linux install `python3-tk`)
 
 ## Installation
