@@ -1,7 +1,7 @@
 import numpy as np
 import cv2
 from numpy.fft import fft2, ifft2, fftshift, ifftshift
-from skimage import exposure, filters, restoration, util, img_as_float
+from skimage import exposure, restoration, morphology, img_as_float
 from sklearn.cluster import DBSCAN
 from scipy.ndimage import gaussian_filter
 from typing import Union, Tuple, List
@@ -13,6 +13,39 @@ def _to_uint8(img: np.ndarray) -> np.uint8:
     m = img.max()
     if m > 0: img /= m
     return (img * 255.0).clip(0, 255).astype(np.uint8)
+
+def to_uint8_percentile(img: np.ndarray, p_lo: float = 1.0, p_hi: float = 99.0) -> np.ndarray:
+    x = img.astype(np.float32)
+    lo, hi = np.percentile(x, [p_lo, p_hi])
+    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
+        return cv2.normalize(x, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    x = np.clip(x, lo, hi)
+    x = (x - lo) / (hi - lo)
+    return (x * 255.0).clip(0, 255).astype(np.uint8)
+
+def detector_mask_from_image(img: np.ndarray, p_thr: float = 2.0, close_radius: int = 25, erode: int = 3) -> np.ndarray:
+    if img.dtype != np.uint8:
+        u8 = to_uint8_percentile(img, 1, 99)
+    else:
+        u8 = img
+
+    thr = np.percentile(u8, p_thr)
+    mask = u8 > thr
+
+    mask = morphology.binary_closing(mask, morphology.disk(close_radius))
+    mask = morphology.remove_small_holes(mask, area_threshold=close_radius * close_radius * 80)
+
+    lab = mask.astype(np.uint8)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(lab, connectivity=8)
+    if n > 1:
+        largest = 1 + np.argmax(stats[1:, cv2.CC_STAT_AREA])
+        mask = labels == largest
+
+    if erode > 0:
+        k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * erode + 1, 2 * erode + 1))
+        mask = cv2.erode(mask.astype(np.uint8), k, iterations=1).astype(bool)
+
+    return mask
 
 def ski_rescale_with_min_max(
         pattern: np.ndarray,
@@ -199,12 +232,24 @@ def pipeline_ski_rdb_adapthist(image, std=None, truncate=4.0, kernel_size=(15, 1
         truncate=truncate,
         dtype_out=np.uint8
     )
+
+    rdb_u8 = to_uint8_percentile(rdb, p_lo=1.0, p_hi=99.3)
+
+    mask = detector_mask_from_image(image, p_thr=2.0, close_radius=25, erode=3)
+
+    tmp = rdb_u8.copy()
+    med = int(np.median(tmp[mask])) if np.any(mask) else 0
+    tmp[~mask] = med
+
     out = ski_adaptive_histogram_equalization(
-        rdb,
+        tmp,
         kernel_size=kernel_size,
         clip_limit=clip_limit,
         nbins=128
     )
+
+    out = out.astype(np.uint8, copy=False)
+    out[~mask] = 0
     return out
 
 def pipeline_opencv_rdb_clahe(image, std=None, truncate=4.0, clip_limit=0.0, tile_grid_size=(30, 30)):
@@ -238,34 +283,6 @@ def pipeline_opencv_rdb_trad(image, std=None, truncate=4.0):
         rdb = (rdb * 255).clip(0, 255).astype(np.uint8)
     return cv2.equalizeHist(rdb)
 
-def enhanced_kikuchi_contrast(image, std=10, clip_limit=0.01, truncate=4.0, kernel_size=(32, 32)):
-    img = util.img_as_float(image)
-    bg = ski_fft_gaussian_filter(img, std)
-    img = img - bg
-    img = exposure.rescale_intensity(img, out_range=(0, 1))
-    sharp = filters.unsharp_mask(img, radius=3, amount=1.5)
-    eq = exposure.equalize_adapthist(sharp, kernel_size=kernel_size, clip_limit=clip_limit)
-    eq_u8 = util.img_as_ubyte(eq)
-    den = cv2.bilateralFilter(eq_u8, d=9, sigmaColor=75, sigmaSpace=75)
-    return den
-
-def process_diffraction_pipeline(image):
-    img = image
-    if img.ndim == 3:
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    thr = cv2.morphologyEx(_to_uint8(img), cv2.MORPH_TOPHAT,
-                           cv2.getStructuringElement(cv2.MORPH_RECT, (21, 21)))
-    acc = np.zeros_like(thr, dtype=np.float32)
-    for theta in range(0, 180, 45):
-        k = cv2.getGaborKernel((21, 21), 4.0, np.deg2rad(theta), 10.0, 0.5, 0, ktype=cv2.CV_32F)
-        acc = np.maximum(acc, cv2.filter2D(thr, cv2.CV_32F, k))
-    gab = cv2.normalize(acc, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    cl = clahe.apply(gab)
-    cl_f = cl.astype(np.float32) / 255.0
-    out = exposure.adjust_gamma(cl_f, 0.5)
-    return (out * 255).clip(0, 255).astype(np.uint8)
-
 def butterworth_lowpass_filter(image, cutoff=30.0, order=2):
     rows, cols = image.shape
     crow, ccol = rows // 2, cols // 2
@@ -279,11 +296,6 @@ def butterworth_lowpass_filter(image, cutoff=30.0, order=2):
     Ff = Fshift * H
     img_back = np.abs(ifft2(ifftshift(Ff)))
     return _to_uint8(img_back)
-
-def sobel_edge_detection(image):
-    im = image / 255.0 if image.max() > 1.0 else image
-    edges = filters.sobel(im)
-    return (edges * 255).astype(np.uint8)
 
 def ready_hough(image_data, params, detect_indices=False):
     grey = image_data if image_data.ndim == 2 else cv2.cvtColor(image_data, cv2.COLOR_BGR2GRAY)
@@ -398,16 +410,3 @@ def gamma_correction(image, gamma=0.5):
     f = _to_uint8(image).astype(np.float32) / 255.0
     corrected = exposure.adjust_gamma(f, gamma)
     return (corrected * 255).clip(0, 255).astype(np.uint8)
-
-def enhance_diffraction(image):
-    img = util.img_as_float(image)
-    sigma_bg = max(2.0, img.shape[1] / 5.0)
-    bg = gaussian_filter(img, sigma=sigma_bg)
-    img = np.clip(img - bg, 0, None)
-    if img.max() > 0:
-        img /= img.max()
-    sharp = filters.unsharp_mask(img, radius=4, amount=1.2)
-    clahe = exposure.equalize_adapthist(sharp, kernel_size=(64, 64), clip_limit=0.003, nbins=512)
-    den = restoration.denoise_nl_means(clahe, h=0.08, patch_size=5, patch_distance=6,
-                                       fast_mode=True, preserve_range=True)
-    return (den * 255).clip(0, 255).astype(np.uint8)

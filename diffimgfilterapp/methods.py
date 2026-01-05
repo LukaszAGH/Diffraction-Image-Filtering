@@ -31,15 +31,7 @@ METHODS = {
         "std": ("float_or_none", None),
         "truncate": ("float", 4.0),
     }),
-    "Enhanced Kikuchi": ("enhanced_kikuchi", {
-        "std": ("float", 10.0),
-        "clip_limit": ("float", 0.01),
-        "truncate": ("float", 4.0),
-        "kernel_size": ("tuple2int", "32,32"),
-    }),
-    "Multi-pipeline": ("multi_pipeline", {}),
     "Butterworth LPF": ("butterworth", {"cutoff": ("float", 30.0), "order": ("int", 2)}),
-    "Sobel": ("sobel", {}),
     "Hough Lines": ("hough", {
         "prob_lines_toggle": ("bool", False),
         "detect_indices": ("bool", False),
@@ -61,7 +53,6 @@ METHODS = {
         "tile_grid_size": ("tuple2int", "8,8"),
     }),
     "Gamma": ("gamma", {"gamma": ("float", 0.5)}),
-    "Enhance Diffraction": ("enhance_diff", {}),
 }
 
 def run_method(method_key: str, img, kwargs: dict):
@@ -106,15 +97,8 @@ def run_method(method_key: str, img, kwargs: dict):
             std=kwargs["std"],
             truncate=kwargs["truncate"]
         )
-
-    if method_key == "enhanced_kikuchi":
-        return op.enhanced_kikuchi_contrast(img, kwargs["std"], kwargs["clip_limit"], kwargs["truncate"], kwargs["kernel_size"])
-    if method_key == "multi_pipeline":
-        return op.process_diffraction_pipeline(img)
     if method_key == "butterworth":
         return op.butterworth_lowpass_filter(img, kwargs["cutoff"], kwargs["order"])
-    if method_key == "sobel":
-        return op.sobel_edge_detection(img)
     if method_key == "hough":
         params = {
             'prob_lines_toggle': kwargs["prob_lines_toggle"],
@@ -130,6 +114,4 @@ def run_method(method_key: str, img, kwargs: dict):
         return op.apply_tophat_clahe(img, kwargs["kernel_size"], kwargs["clip_limit"], kwargs["tile_grid_size"])
     if method_key == "gamma":
         return op.gamma_correction(img, kwargs["gamma"])
-    if method_key == "enhance_diff":
-        return op.enhance_diffraction(img)
     raise ValueError("Unknown method")
