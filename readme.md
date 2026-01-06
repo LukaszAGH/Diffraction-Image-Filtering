@@ -34,7 +34,8 @@ From the project root:
 The application should start with the following screen:
 ![main.png](docs/main.png)
 
-Suitable images to test the tool are the ones demonstrated in the publication: [AstroEBSD: exploring new space in pattern indexing with methods launched from an astronomical approach](https://journals.iucr.org/paper?S1600576718010373) by T. B. Britton et al. (2018)
+Suitable images to test the tool are the ones demonstrated in the publication: [AstroEBSD: exploring new space in pattern indexing with methods launched from an astronomical approach](https://journals.iucr.org/paper?S1600576718010373) by T. B. Britton et al. (2018).
+Zenodo link: https://zenodo.org/records/1450892
 
 ## Acknowledgements & Scientific Inspiration
 
